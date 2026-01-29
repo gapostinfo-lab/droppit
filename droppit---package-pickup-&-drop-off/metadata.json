@@ -1,0 +1,7 @@
+{
+  "name": "Droppit - Package Pickup & Drop-off",
+  "description": "Droppit is a concierge package service that picks up your prepaid packages and drops them at USPS, UPS, FedEx, or Amazon Hubs so you never have to stand in line again.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
