@@ -1,10 +1,9 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { User, Booking, BookingStatus, PACKAGE_SIZES } from '../types';
-import { 
-  Package, User as UserIcon, Plus, Clock, CheckCircle, MapPin, Navigation, Star, 
-  PackageCheck, Truck, X, Compass, Zap, Radar, Camera, 
-  ChevronRight, ShieldCheck, Image as ImageIcon, FileText, Smartphone, 
+import {
+  Package, User as UserIcon, Plus, Clock, CheckCircle, MapPin, Navigation, Star,
+  PackageCheck, Truck, X, Compass, Zap, Radar, Camera,
+  ChevronRight, ShieldCheck, Image as ImageIcon, FileText, Smartphone,
   Receipt, Check, QrCode, ShieldAlert, Ban, UserCheck, AlertCircle, Database, Search, Loader2
 } from 'lucide-react';
 import { BookingWizard } from './BookingWizard';
@@ -13,12 +12,13 @@ interface DashboardProps {
   user: User;
   onLogout: () => void;
   onNavigateProfile: () => void;
+  onStartCheckout: (orderId: string, amountCents: number) => void;
 }
 
 const isValidTransition = (current: BookingStatus, next: BookingStatus, role: string): boolean => {
-  if (role === 'admin') return true; 
+  if (role === 'admin') return true;
   if (current === next) return true;
-  
+
   const transitions: Record<BookingStatus, BookingStatus[]> = {
     'booked': ['courier_assigned', 'canceled'],
     'courier_assigned': ['picked_up', 'issue_hold', 'canceled'],
@@ -32,7 +32,12 @@ const isValidTransition = (current: BookingStatus, next: BookingStatus, role: st
   return transitions[current]?.includes(next) || false;
 };
 
-export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigateProfile }) => {
+export const Dashboard: React.FC<DashboardProps> = ({
+  user,
+  onLogout,
+  onNavigateProfile,
+  onStartCheckout
+}) => {
   const [activeTab, setActiveTab] = useState<'deliveries' | 'tracking' | 'admin'>('deliveries');
   const [isBooking, setIsBooking] = useState(false);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -100,10 +105,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
     }));
   }, [user]);
 
+  /**
+   * ✅ PAYMENT GATE:
+   * When booking wizard completes, we do NOT publish to bookings_db yet.
+   * We store it temporarily and force Stripe checkout first.
+   */
   const handleBookingComplete = (newBooking: Booking) => {
-    setBookings([newBooking, ...bookings]);
+    localStorage.setItem('droppit_pending_booking', JSON.stringify(newBooking));
     setIsBooking(false);
-    setActiveTab('tracking');
+
+    const amountCents = Math.round(newBooking.price_total * 100);
+    onStartCheckout(newBooking.id, amountCents);
   };
 
   const activeJobs = filteredBookings.filter(b => b.status !== 'completed' && b.status !== 'canceled');
@@ -136,13 +148,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
 
         <div className="space-y-4">
           <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-             <p className="text-[10px] text-slate-500 font-black uppercase mb-1 italic tracking-widest">Drop-off Location</p>
-             <p className="text-sm font-black text-white italic tracking-tighter leading-tight">{job.dropoff_name}</p>
-             <p className="text-[9px] text-slate-400 uppercase mt-1 tracking-tighter leading-tight">{job.dropoff_address}</p>
+            <p className="text-[10px] text-slate-500 font-black uppercase mb-1 italic tracking-widest">Drop-off Location</p>
+            <p className="text-sm font-black text-white italic tracking-tighter leading-tight">{job.dropoff_name}</p>
+            <p className="text-[9px] text-slate-400 uppercase mt-1 tracking-tighter leading-tight">{job.dropoff_address}</p>
           </div>
 
           {job.courier_id === null ? (
-            <button 
+            <button
               onClick={() => updateBooking(job.id, { courier_id: user.id, status: 'courier_assigned' })}
               className="w-full bg-lime-400 text-slate-950 font-black py-4 rounded-2xl uppercase italic tracking-tighter shadow-lg shadow-lime-400/20 active:scale-95"
             >
@@ -188,7 +200,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                 </div>
               )}
 
-              <button 
+              <button
                 disabled={!canFinalize || job.status === 'completed' || isProcessingOp}
                 onClick={() => secureCompleteDelivery(job.id)}
                 className="w-full bg-lime-400 text-slate-950 font-black py-4 rounded-2xl uppercase italic tracking-tighter disabled:opacity-20 active:scale-95 transition-all text-sm shadow-xl shadow-lime-400/10 flex items-center justify-center gap-2"
@@ -244,10 +256,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                 ].map((art, i) => (
                   <div key={i} className={`aspect-square bg-slate-950 rounded-xl border flex flex-col items-center justify-center transition-all ${art.url ? 'border-lime-400/40' : 'border-slate-800'}`}>
                     {art.url ? (
-                       <div className="text-center p-1">
-                          <art.icon size={12} className="text-lime-400 mx-auto" />
-                          <p className="text-[4px] text-lime-400/40 font-black uppercase tracking-tighter truncate w-10 mt-1">{art.url}</p>
-                       </div>
+                      <div className="text-center p-1">
+                        <art.icon size={12} className="text-lime-400 mx-auto" />
+                        <p className="text-[4px] text-lime-400/40 font-black uppercase tracking-tighter truncate w-10 mt-1">{art.url}</p>
+                      </div>
                     ) : (
                       <art.icon size={12} className="text-slate-800" />
                     )}
@@ -257,7 +269,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                   <Search size={14} />
                 </button>
               </div>
-              
+
               <div className="flex gap-2">
                 <button onClick={() => updateBooking(b.id, { status: 'issue_hold' })} className="flex-1 bg-orange-500/10 border border-orange-500/30 text-orange-500 text-[8px] font-black uppercase py-2.5 rounded-lg active:scale-95 leading-none">Hold</button>
                 <button onClick={() => updateBooking(b.id, { courier_id: null, status: 'booked' })} className="flex-1 bg-blue-500/10 border border-blue-500/30 text-blue-500 text-[8px] font-black uppercase py-2.5 rounded-lg active:scale-95 leading-none">Reset</button>
@@ -300,7 +312,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                     <Truck size={160} />
                   </div>
                   <div className="relative z-10">
-                    <h3 className="text-slate-950 text-4xl font-black mb-1 uppercase tracking-tighter italic leading-none">Drop packages,<br/>not your plans.</h3>
+                    <h3 className="text-slate-950 text-4xl font-black mb-1 uppercase tracking-tighter italic leading-none">Drop packages,<br />not your plans.</h3>
                     <p className="text-slate-950/60 text-[11px] font-black uppercase tracking-[0.2em] mb-8 italic leading-tight">Fast, secure package pickup service</p>
                     <button onClick={() => setIsBooking(true)} className="flex items-center gap-3 bg-slate-950 text-white font-black py-4 px-8 rounded-2xl active:scale-95 transition-all uppercase italic tracking-tighter text-sm shadow-2xl hover:bg-slate-900 leading-none">
                       <Plus size={18} className="text-lime-400" />
@@ -318,8 +330,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                   ) : (
                     <div className="space-y-3">
                       {activeJobs.map(job => (
-                        <div 
-                          key={job.id} 
+                        <div
+                          key={job.id}
                           onClick={() => user.role === 'courier' ? setSelectedBooking(job) : setActiveTab('tracking')}
                           className="bg-slate-900 p-5 rounded-3xl border border-slate-800 flex items-center justify-between hover:border-lime-400/30 transition-all cursor-pointer group shadow-xl"
                         >
@@ -328,8 +340,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                               <PackageCheck size={20} />
                             </div>
                             <div>
-                               <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none mb-1 italic">{job.carrier} Order</p>
-                               <h4 className="font-black text-sm uppercase italic text-white tracking-tighter leading-tight">{job.dropoff_name}</h4>
+                              <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none mb-1 italic">{job.carrier} Order</p>
+                              <h4 className="font-black text-sm uppercase italic text-white tracking-tighter leading-tight">{job.dropoff_name}</h4>
                             </div>
                           </div>
                           <div className="bg-slate-800 p-2 rounded-xl text-slate-400 group-hover:text-lime-400 transition-colors leading-none">
@@ -378,56 +390,56 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                   <div className="space-y-8">
                     {activeJobs.map(job => (
                       <div key={job.id} className="bg-slate-900 border border-lime-400/20 rounded-[2.5rem] p-8 space-y-6 shadow-2xl relative overflow-hidden group">
-                         <div className="flex justify-between items-start relative z-10">
-                           <div>
-                             <h4 className="text-2xl font-black italic uppercase tracking-tighter text-white leading-none">{job.carrier} SHIPMENT</h4>
-                             <p className="text-[10px] text-lime-400 font-black uppercase tracking-widest mt-2 italic leading-none">{job.status.replace('_', ' ')}</p>
-                           </div>
-                           <div className="bg-slate-800 p-3 rounded-2xl text-lime-400 border border-slate-700 shadow-xl leading-none"><Radar className="animate-pulse" size={24} /></div>
-                         </div>
+                        <div className="flex justify-between items-start relative z-10">
+                          <div>
+                            <h4 className="text-2xl font-black italic uppercase tracking-tighter text-white leading-none">{job.carrier} SHIPMENT</h4>
+                            <p className="text-[10px] text-lime-400 font-black uppercase tracking-widest mt-2 italic leading-none">{job.status.replace('_', ' ')}</p>
+                          </div>
+                          <div className="bg-slate-800 p-3 rounded-2xl text-lime-400 border border-slate-700 shadow-xl leading-none"><Radar className="animate-pulse" size={24} /></div>
+                        </div>
 
-                         <div className="grid grid-cols-2 gap-3 relative z-10">
-                            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 group/art shadow-inner">
-                              <span className="text-[7px] font-black uppercase text-slate-600 tracking-widest italic block leading-none">QR/Label</span>
+                        <div className="grid grid-cols-2 gap-3 relative z-10">
+                          <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 group/art shadow-inner">
+                            <span className="text-[7px] font-black uppercase text-slate-600 tracking-widest italic block leading-none">QR/Label</span>
+                            <div className="h-24 bg-slate-900/50 rounded-xl border border-lime-400/20 flex flex-col items-center justify-center p-2 leading-none">
+                              <FileText size={20} className="text-lime-400 mb-1.5" />
+                              <p className="text-[4px] text-slate-700 font-black uppercase truncate w-full text-center tracking-tighter italic leading-none">{job.qr_url || job.label_url}</p>
+                            </div>
+                          </div>
+                          <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 group/art shadow-inner">
+                            <span className="text-[7px] font-black uppercase text-slate-600 tracking-widest italic block leading-none">Pickup Proof</span>
+                            {job.pickup_proof_url ? (
                               <div className="h-24 bg-slate-900/50 rounded-xl border border-lime-400/20 flex flex-col items-center justify-center p-2 leading-none">
-                                 <FileText size={20} className="text-lime-400 mb-1.5" />
-                                 <p className="text-[4px] text-slate-700 font-black uppercase truncate w-full text-center tracking-tighter italic leading-none">{job.qr_url || job.label_url}</p>
+                                <Camera size={20} className="text-lime-400 mb-1.5" />
+                                <p className="text-[4px] text-slate-700 font-black uppercase truncate w-full text-center tracking-tighter leading-none italic">{job.pickup_proof_url}</p>
                               </div>
-                            </div>
-                            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 group/art shadow-inner">
-                              <span className="text-[7px] font-black uppercase text-slate-600 tracking-widest italic block leading-none">Pickup Proof</span>
-                              {job.pickup_proof_url ? (
-                                <div className="h-24 bg-slate-900/50 rounded-xl border border-lime-400/20 flex flex-col items-center justify-center p-2 leading-none">
-                                  <Camera size={20} className="text-lime-400 mb-1.5" />
-                                  <p className="text-[4px] text-slate-700 font-black uppercase truncate w-full text-center tracking-tighter leading-none italic">{job.pickup_proof_url}</p>
-                                </div>
-                              ) : <div className="h-24 bg-slate-900/50 rounded-xl border border-dashed border-slate-800 flex items-center justify-center text-[7px] font-black text-slate-800 italic uppercase leading-none">Waiting for pickup</div>}
-                            </div>
-                         </div>
+                            ) : <div className="h-24 bg-slate-900/50 rounded-xl border border-dashed border-slate-800 flex items-center justify-center text-[7px] font-black text-slate-800 italic uppercase leading-none">Waiting for pickup</div>}
+                          </div>
+                        </div>
 
-                         {job.dropoff_receipt_url && (
-                           <div className="bg-slate-950 p-5 rounded-3xl border border-lime-400/40 space-y-4 animate-in zoom-in-95 duration-700 shadow-2xl relative z-10">
-                             <div className="flex items-center gap-2">
-                               <Receipt size={16} className="text-lime-400" />
-                               <span className="text-[9px] font-black uppercase text-lime-400 italic tracking-[0.2em] leading-none">Delivery Receipt</span>
-                             </div>
-                             <div className="h-12 bg-slate-900/50 rounded-xl border border-lime-400/20 flex items-center justify-center px-4 leading-none">
-                               <ShieldCheck size={16} className="text-lime-400 shrink-0 mr-2" />
-                               <p className="text-[6px] text-lime-400/60 font-black uppercase italic tracking-widest truncate w-full text-center leading-none italic">{job.dropoff_receipt_url}</p>
-                             </div>
-                           </div>
-                         )}
+                        {job.dropoff_receipt_url && (
+                          <div className="bg-slate-950 p-5 rounded-3xl border border-lime-400/40 space-y-4 animate-in zoom-in-95 duration-700 shadow-2xl relative z-10">
+                            <div className="flex items-center gap-2">
+                              <Receipt size={16} className="text-lime-400" />
+                              <span className="text-[9px] font-black uppercase text-lime-400 italic tracking-[0.2em] leading-none">Delivery Receipt</span>
+                            </div>
+                            <div className="h-12 bg-slate-900/50 rounded-xl border border-lime-400/20 flex items-center justify-center px-4 leading-none">
+                              <ShieldCheck size={16} className="text-lime-400 shrink-0 mr-2" />
+                              <p className="text-[6px] text-lime-400/60 font-black uppercase italic tracking-widest truncate w-full text-center leading-none italic">{job.dropoff_receipt_url}</p>
+                            </div>
+                          </div>
+                        )}
 
-                         <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden z-10 shadow-inner">
-                            <div 
-                              className="absolute h-full bg-gradient-to-r from-lime-600 to-lime-400 transition-all duration-1000 ease-out" 
-                              style={{ width: job.status === 'completed' ? '100%' : job.status === 'at_dropoff' ? '85%' : job.status === 'picked_up' ? '50%' : '15%' }} 
-                            />
-                         </div>
-                         <div className="flex justify-between items-center z-10 relative">
-                            <span className="text-[7px] text-slate-600 font-black uppercase tracking-widest italic leading-none">Real-time status: {job.status.replace('_', ' ')}</span>
-                            <span className="text-[7px] text-slate-600 font-black uppercase tracking-widest italic leading-none">SECURE DATA</span>
-                         </div>
+                        <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden z-10 shadow-inner">
+                          <div
+                            className="absolute h-full bg-gradient-to-r from-lime-600 to-lime-400 transition-all duration-1000 ease-out"
+                            style={{ width: job.status === 'completed' ? '100%' : job.status === 'at_dropoff' ? '85%' : job.status === 'picked_up' ? '50%' : '15%' }}
+                          />
+                        </div>
+                        <div className="flex justify-between items-center z-10 relative">
+                          <span className="text-[7px] text-slate-600 font-black uppercase tracking-widest italic leading-none">Real-time status: {job.status.replace('_', ' ')}</span>
+                          <span className="text-[7px] text-slate-600 font-black uppercase tracking-widest italic leading-none">SECURE DATA</span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -454,11 +466,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
             <Package size={24} className={activeTab === 'deliveries' ? 'drop-shadow-[0_0_8px_rgba(163,230,53,0.4)]' : ''} />
             <span className="text-[8px] font-black uppercase italic tracking-widest leading-none">Home</span>
           </button>
-          
+
           <button onClick={() => setIsBooking(true)} className="bg-lime-400 p-4 rounded-2xl shadow-2xl shadow-lime-400/30 text-slate-950 active:scale-90 transition-all border-4 border-slate-950 -mt-10 hover:rotate-3 leading-none">
             <Plus size={28} />
           </button>
-          
+
           <button onClick={() => setActiveTab('tracking')} className={`flex flex-col items-center gap-1.5 transition-all duration-300 leading-none ${activeTab === 'tracking' ? 'text-lime-400 scale-110' : 'text-slate-700'}`}>
             <Navigation size={24} className={activeTab === 'tracking' ? 'drop-shadow-[0_0_8px_rgba(163,230,53,0.4)]' : ''} />
             <span className="text-[8px] font-black uppercase italic tracking-widest leading-none">Track</span>
